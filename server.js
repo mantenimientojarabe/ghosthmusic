@@ -38,7 +38,11 @@ app.get('/api/stream', async (req, res) => {
         const idVideo = req.query.id;
         if (!idVideo) return res.status(400).send("Falta el ID del video");
 
-        const infoAudio = await play.stream(idVideo);
+        // EL FIX: Armamos la URL completa oficial de YouTube usando el ID
+        const urlCompleta = `https://www.youtube.com/watch?v=${idVideo}`;
+
+        // Le pasamos la URL completa a play-dl
+        const infoAudio = await play.stream(urlCompleta);
 
         res.setHeader('Content-Type', 'audio/webm');
         infoAudio.stream.pipe(res);
