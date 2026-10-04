@@ -1,24 +1,22 @@
 const express = require('express');
 const cors = require('cors');
 const yts = require('yt-search');
-const ytdl = require('@distube/ytdl-core');
 
 const app = express();
 app.use(cors());
 
-// ENDPOINT 1: Buscador en YouTube (Anti-bloqueos)
+// ENDPOINT 1: Buscador (Se queda igual, porque este sí funciona bien)
 app.get('/api/buscar', async (req, res) => {
     try {
         const texto = req.query.q;
         if (!texto) return res.status(400).json({ error: "Falta el texto de búsqueda" });
 
-        // Buscamos directamente usando yt-search
         const resultados = await yts(texto);
         
         if (resultados.videos.length > 0) {
             const video = resultados.videos[0];
             res.json({
-                id: video.videoId, // Retornamos el ID puro de YouTube
+                id: video.videoId,
                 titulo: video.title,
                 artista: video.author.name,
                 portada: video.thumbnail
@@ -32,25 +30,30 @@ app.get('/api/buscar', async (req, res) => {
     }
 });
 
-// ENDPOINT 2: Transmisor de audio de alta calidad
-app.get('/api/stream', (req, res) => {
+// ENDPOINT 2: El Redireccionador Maestro (El fix definitivo)
+app.get('/api/stream', async (req, res) => {
     try {
         const idVideo = req.query.id;
         if (!idVideo) return res.status(400).send("Falta el ID del video");
 
-        const urlCompleta = `https://www.youtube.com/watch?v=${idVideo}`;
+        // 1. Usamos la API pública antibloqueos de Piped para pedir la información del video
+        const respuesta = await fetch(`https://pipedapi.kavin.rocks/streams/${idVideo}`);
+        const datos = await respuesta.json();
 
-        // Avisamos al navegador que viene audio
-        res.setHeader('Content-Type', 'audio/webm');
-        
-        // Extraemos solo el audio con la calidad más alta posible
-        ytdl(urlCompleta, { 
-            filter: 'audioonly',
-            quality: 'highestaudio'
-        }).pipe(res);
+        // 2. Verificamos que tenga los streams de audio
+        if (!datos.audioStreams || datos.audioStreams.length === 0) {
+            return res.status(404).send("Audio no disponible temporalmente");
+        }
+
+        // 3. Ordenamos los audios y tomamos el de mayor calidad (mejor bitrate)
+        const mejorAudio = datos.audioStreams.sort((a, b) => b.bitrate - a.bitrate)[0];
+
+        // 4. LA MAGIA: En lugar de descargar el audio, redirigimos tu reproductor 
+        // para que tome la música directamente desde los servidores reales sin pasar por Railway.
+        res.redirect(mejorAudio.url);
 
     } catch (error) {
-        console.error("Error transmitiendo:", error);
+        console.error("Error obteniendo el stream:", error);
         res.status(500).send("Error al cargar el audio");
     }
 });
@@ -58,5 +61,5 @@ app.get('/api/stream', (req, res) => {
 // Encendemos el motor
 const PUERTO = process.env.PORT || 3000;
 app.listen(PUERTO, () => {
-    console.log(`Motor definitivo de GhostMusic encendido en el puerto ${PUERTO}`);
+    console.log(`Motor de GhostMusic encendido en el puerto ${PUERTO}`);
 });
