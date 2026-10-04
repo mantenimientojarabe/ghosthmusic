@@ -3,46 +3,45 @@ const cors = require('cors');
 const play = require('play-dl');
 
 const app = express();
-
-// Autorizamos a tu página de Firebase a conectarse
 app.use(cors());
 
-// ENDPOINT 1: El buscador de canciones
+// ENDPOINT 1: Buscador (Ahora usa SoundCloud)
 app.get('/api/buscar', async (req, res) => {
     try {
         const texto = req.query.q;
         if (!texto) return res.status(400).json({ error: "Falta el texto de búsqueda" });
 
-        const resultados = await play.search(texto, { limit: 1 });
+        // Buscamos específicamente pistas en SoundCloud
+        const resultados = await play.search(texto, { 
+            limit: 1, 
+            source: { soundcloud: 'tracks' } 
+        });
 
         if (resultados.length > 0) {
-            const video = resultados[0];
+            const pista = resultados[0];
             res.json({
-                id: video.id,
-                titulo: video.title,
-                artista: video.channel.name,
-                portada: video.thumbnails[video.thumbnails.length - 1].url
+                id: pista.url, // SoundCloud usa la URL completa como ID
+                titulo: pista.name,
+                artista: pista.user.name,
+                portada: pista.thumbnail || 'https://placehold.co/300x300/2a2a2a/ffffff?text=GhostMusic'
             });
         } else {
             res.status(404).json({ error: "No se encontró música" });
         }
     } catch (error) {
-        console.error("Error buscando:", error);
+        console.error("Error buscando en SoundCloud:", error);
         res.status(500).json({ error: "Error en el servidor" });
     }
 });
 
-// ENDPOINT 2: El transmisor de audio (Streaming)
+// ENDPOINT 2: Transmisor de audio
 app.get('/api/stream', async (req, res) => {
     try {
-        const idVideo = req.query.id;
-        if (!idVideo) return res.status(400).send("Falta el ID del video");
+        const urlPista = req.query.id;
+        if (!urlPista) return res.status(400).send("Falta la URL de la pista");
 
-        // EL FIX: Armamos la URL completa oficial de YouTube usando el ID
-        const urlCompleta = `https://www.youtube.com/watch?v=${idVideo}`;
-
-        // Le pasamos la URL completa a play-dl
-        const infoAudio = await play.stream(urlCompleta);
+        // Extraemos el audio directamente de SoundCloud
+        const infoAudio = await play.stream(urlPista);
 
         res.setHeader('Content-Type', 'audio/webm');
         infoAudio.stream.pipe(res);
@@ -53,7 +52,7 @@ app.get('/api/stream', async (req, res) => {
     }
 });
 
-// Encendemos el servidor (Railway usa process.env.PORT)
+// Encendemos el motor
 const PUERTO = process.env.PORT || 3000;
 app.listen(PUERTO, () => {
     console.log(`Motor de GhostMusic encendido en el puerto ${PUERTO}`);
