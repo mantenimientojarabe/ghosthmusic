@@ -1,79 +1,70 @@
 const express = require('express');
 const cors = require('cors');
-const yts = require('yt-search');
 
 const app = express();
 app.use(cors());
 
-// ENDPOINT 1: Buscador (Se queda igual, porque este sí funciona bien)
+// ENDPOINT 1: Buscador Maestro en la API de Música Oficial (JioSaavn)
 app.get('/api/buscar', async (req, res) => {
     try {
         const texto = req.query.q;
         if (!texto) return res.status(400).json({ error: "Falta el texto de búsqueda" });
 
-        const resultados = await yts(texto);
+        console.log(`Buscando: ${texto}`);
         
-        if (resultados.videos.length > 0) {
-            const video = resultados.videos[0];
+        // Conectamos con el proveedor de música oficial agregando un User-Agent (Para que no nos detecten como robot)
+        const respuesta = await fetch(`https://saavn.dev/api/search/songs?query=${encodeURIComponent(texto)}`, {
+            headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" }
+        });
+        
+        const datos = await respuesta.json();
+
+        // Verificamos si la API devolvió resultados
+        if (datos.success && datos.data && datos.data.results && datos.data.results.length > 0) {
+            const cancion = datos.data.results[0];
+            
+            // Extraemos la portada de mayor calidad (Generalmente la última de la lista)
+            const portadas = cancion.image || [];
+            const portadaHD = portadas.length > 0 ? (portadas[portadas.length - 1].url || portadas[portadas.length - 1].link) : 'https://placehold.co/300';
+            
+            // Extraemos el enlace del audio directo de estudio
+            const audios = cancion.downloadUrl || [];
+            const mejorAudio = audios.length > 0 ? (audios[audios.length - 1].url || audios[audios.length - 1].link) : null;
+
+            if (!mejorAudio) {
+                return res.status(404).json({ error: "Audio no disponible" });
+            }
+
+            // Limpiamos los títulos (A veces traen caracteres HTML raros)
+            const tituloLimpio = cancion.name.replace(/&quot;/g, '"').replace(/&#039;/g, "'").replace(/&amp;/g, "&");
+
             res.json({
-                id: video.videoId,
-                titulo: video.title,
-                artista: video.author.name,
-                portada: video.thumbnail
+                id: mejorAudio, // Guardamos la URL directa del audio como ID
+                titulo: tituloLimpio,
+                artista: cancion.primaryArtists || "Artista Desconocido",
+                portada: portadaHD
             });
         } else {
             res.status(404).json({ error: "No se encontró música" });
         }
     } catch (error) {
-        console.error("Error buscando:", error);
+        console.error("Error buscando en la API de música:", error);
         res.status(500).json({ error: "Error en el servidor" });
     }
 });
 
-// ENDPOINT 2: El Redireccionador Maestro (Con Múltiples Servidores Fallback)
-app.get('/api/stream', async (req, res) => {
+// ENDPOINT 2: El Streamer Directo
+app.get('/api/stream', (req, res) => {
     try {
-        const idVideo = req.query.id;
-        if (!idVideo) return res.status(400).send("Falta el ID del video");
+        const enlaceAudio = req.query.id;
+        if (!enlaceAudio) return res.status(400).send("Falta el enlace de la canción");
 
-        // Lista de servidores públicos antibloqueos (Si uno cae, usa el siguiente)
-        const servidoresPiped = [
-            "https://pipedapi.kavin.rocks",
-            "https://pipedapi.tokhmi.xyz",
-            "https://piped-api.garudalinux.org",
-            "https://pi.ggtyler.dev/api"
-        ];
-
-        let datos = null;
-
-        // Intentamos conectarnos a cada servidor uno por uno
-        for (const servidor of servidoresPiped) {
-            try {
-                console.log(`Intentando extraer audio desde: ${servidor}`);
-                const respuesta = await fetch(`${servidor}/streams/${idVideo}`);
-                
-                if (respuesta.ok) {
-                    datos = await respuesta.json();
-                    break; // Si funcionó, rompemos el ciclo y avanzamos
-                }
-            } catch (error) {
-                console.log(`Servidor ${servidor} no respondió, intentando el siguiente...`);
-            }
-        }
-
-        // Si después de intentar con todos, no obtuvimos datos, lanzamos error
-        if (!datos || !datos.audioStreams || datos.audioStreams.length === 0) {
-            return res.status(404).send("Ningún servidor pudo procesar el audio en este momento.");
-        }
-
-        // Ordenamos los audios y tomamos el de mayor calidad
-        const mejorAudio = datos.audioStreams.sort((a, b) => b.bitrate - a.bitrate)[0];
-
-        // Redirigimos el reproductor al enlace real
-        res.redirect(mejorAudio.url);
+        // Como ahora extraemos la URL de audio directo de alta calidad de los servidores oficiales,
+        // simplemente redirigimos tu reproductor web hacia allá. ¡Carga instantánea!
+        res.redirect(enlaceAudio);
 
     } catch (error) {
-        console.error("Error crítico obteniendo el stream:", error);
+        console.error("Error transmitiendo:", error);
         res.status(500).send("Error al cargar el audio");
     }
 });
@@ -81,5 +72,5 @@ app.get('/api/stream', async (req, res) => {
 // Encendemos el motor
 const PUERTO = process.env.PORT || 3000;
 app.listen(PUERTO, () => {
-    console.log(`Motor de GhostMusic encendido en el puerto ${PUERTO}`);
+    console.log(`Motor de GhostMusic encendido en el puerto ${PUERTO} conectado a red oficial.`);
 });
