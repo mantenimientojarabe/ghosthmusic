@@ -5,13 +5,28 @@ const play = require('play-dl');
 const app = express();
 app.use(cors());
 
+// Configuramos el Client ID de SoundCloud al iniciar el servidor
+async function setupSoundCloud() {
+    try {
+        const client_id = await play.getFreeClientID();
+        await play.setToken({
+            soundcloud: {
+                client_id: client_id
+            }
+        });
+        console.log("SoundCloud configurado correctamente.");
+    } catch (error) {
+        console.error("Error al configurar SoundCloud:", error);
+    }
+}
+setupSoundCloud();
+
 // ENDPOINT 1: Buscador (Ahora usa SoundCloud)
 app.get('/api/buscar', async (req, res) => {
     try {
         const texto = req.query.q;
         if (!texto) return res.status(400).json({ error: "Falta el texto de búsqueda" });
 
-        // Buscamos específicamente pistas en SoundCloud
         const resultados = await play.search(texto, { 
             limit: 1, 
             source: { soundcloud: 'tracks' } 
@@ -20,7 +35,7 @@ app.get('/api/buscar', async (req, res) => {
         if (resultados.length > 0) {
             const pista = resultados[0];
             res.json({
-                id: pista.url, // SoundCloud usa la URL completa como ID
+                id: pista.url,
                 titulo: pista.name,
                 artista: pista.user.name,
                 portada: pista.thumbnail || 'https://placehold.co/300x300/2a2a2a/ffffff?text=GhostMusic'
@@ -40,7 +55,6 @@ app.get('/api/stream', async (req, res) => {
         const urlPista = req.query.id;
         if (!urlPista) return res.status(400).send("Falta la URL de la pista");
 
-        // Extraemos el audio directamente de SoundCloud
         const infoAudio = await play.stream(urlPista);
 
         res.setHeader('Content-Type', 'audio/webm');
