@@ -30,30 +30,50 @@ app.get('/api/buscar', async (req, res) => {
     }
 });
 
-// ENDPOINT 2: El Redireccionador Maestro (El fix definitivo)
+// ENDPOINT 2: El Redireccionador Maestro (Con Múltiples Servidores Fallback)
 app.get('/api/stream', async (req, res) => {
     try {
         const idVideo = req.query.id;
         if (!idVideo) return res.status(400).send("Falta el ID del video");
 
-        // 1. Usamos la API pública antibloqueos de Piped para pedir la información del video
-        const respuesta = await fetch(`https://pipedapi.kavin.rocks/streams/${idVideo}`);
-        const datos = await respuesta.json();
+        // Lista de servidores públicos antibloqueos (Si uno cae, usa el siguiente)
+        const servidoresPiped = [
+            "https://pipedapi.kavin.rocks",
+            "https://pipedapi.tokhmi.xyz",
+            "https://piped-api.garudalinux.org",
+            "https://pi.ggtyler.dev/api"
+        ];
 
-        // 2. Verificamos que tenga los streams de audio
-        if (!datos.audioStreams || datos.audioStreams.length === 0) {
-            return res.status(404).send("Audio no disponible temporalmente");
+        let datos = null;
+
+        // Intentamos conectarnos a cada servidor uno por uno
+        for (const servidor of servidoresPiped) {
+            try {
+                console.log(`Intentando extraer audio desde: ${servidor}`);
+                const respuesta = await fetch(`${servidor}/streams/${idVideo}`);
+                
+                if (respuesta.ok) {
+                    datos = await respuesta.json();
+                    break; // Si funcionó, rompemos el ciclo y avanzamos
+                }
+            } catch (error) {
+                console.log(`Servidor ${servidor} no respondió, intentando el siguiente...`);
+            }
         }
 
-        // 3. Ordenamos los audios y tomamos el de mayor calidad (mejor bitrate)
+        // Si después de intentar con todos, no obtuvimos datos, lanzamos error
+        if (!datos || !datos.audioStreams || datos.audioStreams.length === 0) {
+            return res.status(404).send("Ningún servidor pudo procesar el audio en este momento.");
+        }
+
+        // Ordenamos los audios y tomamos el de mayor calidad
         const mejorAudio = datos.audioStreams.sort((a, b) => b.bitrate - a.bitrate)[0];
 
-        // 4. LA MAGIA: En lugar de descargar el audio, redirigimos tu reproductor 
-        // para que tome la música directamente desde los servidores reales sin pasar por Railway.
+        // Redirigimos el reproductor al enlace real
         res.redirect(mejorAudio.url);
 
     } catch (error) {
-        console.error("Error obteniendo el stream:", error);
+        console.error("Error crítico obteniendo el stream:", error);
         res.status(500).send("Error al cargar el audio");
     }
 });
